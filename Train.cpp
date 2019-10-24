@@ -54,19 +54,28 @@ extern std::vector< std::vector<double> > Output;
 
 extern std::vector< std::vector<double> > weight1;
 extern std::vector< std::vector<double> > weight2;
+extern std::vector< std::vector<double> > weight3;
 extern std::vector< std::vector<double> > deltaWeight1;
 extern std::vector< std::vector<double> > deltaWeight2;
+extern std::vector< std::vector<double> > deltaWeight3;
 
 extern Technology techIH;
+extern Technology techHH;
 extern Technology techHO;
 extern Array *arrayIH;
+extern Array *arrayHH;
 extern Array *arrayHO;
 extern SubArray *subArrayIH;
+extern SubArray *subArrayHH;
 extern SubArray *subArrayHO;
 extern Adder adderIH;
 extern Mux muxIH;
 extern RowDecoder muxDecoderIH;
 extern DFF dffIH;
+extern Adder adderHH;
+extern Mux muxHH;
+extern RowDecoder muxDecoderHH;
+extern DFF dffHH;
 extern Adder adderHO;
 extern Mux muxHO;
 extern RowDecoder muxDecoderHO;
@@ -78,12 +87,16 @@ void Train(const int numTrain, const int epochs) {
 	double outN1[param->nHide]; // Net input to the hidden layer [param->nHide]
 	double a1[param->nHide];    // Net output of hidden layer [param->nHide] also the input of hidden layer to output layer
 	int da1[param->nHide];  // Digitized net output of hidden layer [param->nHide] also the input of hidden layer to output layer
-	double outN2[param->nOutput];   // Net input to the output layer [param->nOutput]
-	double a2[param->nOutput];  // Net output of output layer [param->nOutput]
+	double outN2[param->nHide2];
+	double a2[param->nHide2];
+	int da2[param->nHide2];
+	double outN3[param->nOutput];
+	double a3[param->nOutput];
 
 	double s1[param->nHide];    // Output delta from input layer to the hidden layer [param->nHide]
-	double s2[param->nOutput];  // Output delta from hidden layer to the output layer [param->nOutput]
-	
+	double s2[param->nHide2];  // Output delta from hidden layer to the output layer [param->nOutput]
+	double s3[param->nOutput];
+
 	for (int t = 0; t < epochs; t++) {
 		for (int batchSize = 0; batchSize < numTrain; batchSize++) {
 
@@ -179,39 +192,39 @@ void Train(const int numTrain, const int epochs) {
 				}
 			}
 
-			/* Second layer (hidder layer to the output layer) */
-			std::fill_n(outN2, param->nOutput, 0);
-			std::fill_n(a2, param->nOutput, 0);
+			/* Second layer (hidden layer to the hidden layer2) */
+			std::fill_n(outN2, param->nHide2, 0);
+			std::fill_n(a2, param->nHide2, 0);
 			if (param->useHardwareInTrainingFF) {   // Hardware
 				double sumArrayReadEnergy = 0;  // Use a temporary variable here since OpenMP does not support reduction on class member
-				double readVoltage = static_cast<eNVM*>(arrayHO->cell[0][0])->readVoltage;
-				double readPulseWidth = static_cast<eNVM*>(arrayHO->cell[0][0])->readPulseWidth;
+				double readVoltage = static_cast<eNVM*>(arrayHH->cell[0][0])->readVoltage;
+				double readPulseWidth = static_cast<eNVM*>(arrayHH->cell[0][0])->readPulseWidth;
 				#pragma omp parallel for reduction(+: sumArrayReadEnergy)
-				for (int j=0; j<param->nOutput; j++) {
-					if (AnalogNVM *temp = dynamic_cast<AnalogNVM*>(arrayHO->cell[0][0])) {  // Analog eNVM
-						if (static_cast<eNVM*>(arrayHO->cell[0][0])->cmosAccess) {  // 1T1R
-							sumArrayReadEnergy += arrayHO->wireGateCapRow * techHO.vdd * techHO.vdd * param->nHide; // All WLs open
+				for (int j=0; j<param->nHide2; j++) {
+					if (AnalogNVM *temp = dynamic_cast<AnalogNVM*>(arrayHH->cell[0][0])) {  // Analog eNVM
+						if (static_cast<eNVM*>(arrayHH->cell[0][0])->cmosAccess) {  // 1T1R
+							sumArrayReadEnergy += arrayHH->wireGateCapRow * techHH.vdd * techHH.vdd * param->nHide; // All WLs open
 						}
-					} else if (DigitalNVM *temp = dynamic_cast<DigitalNVM*>(arrayHO->cell[0][0])) { // Digital eNVM
-						if (static_cast<eNVM*>(arrayHO->cell[0][0])->cmosAccess) {  // 1T1R
-							sumArrayReadEnergy += arrayHO->wireGateCapRow * techHO.vdd * techHO.vdd;    // Selected WL
+					} else if (DigitalNVM *temp = dynamic_cast<DigitalNVM*>(arrayHH->cell[0][0])) { // Digital eNVM
+						if (static_cast<eNVM*>(arrayHH->cell[0][0])->cmosAccess) {  // 1T1R
+							sumArrayReadEnergy += arrayHH->wireGateCapRow * techHH.vdd * techHH.vdd;    // Selected WL
 						} else {    // Cross-point
-							sumArrayReadEnergy += arrayHO->wireCapRow * techHO.vdd * techHO.vdd * (param->nHide - 1);   // Unselected WLs
+							sumArrayReadEnergy += arrayHH->wireCapRow * techHH.vdd * techHH.vdd * (param->nHide - 1);   // Unselected WLs
 						}
 					}
 					for (int n=0; n<param->numBitInput; n++) {
-						double pSumMaxAlgorithm = pow(2, n) / (param->numInputLevel - 1) * arrayHO->arrayRowSize;    // Max algorithm partial weighted sum for the nth vector bit (if both max input value and max weight are 1)
-						if (AnalogNVM *temp = dynamic_cast<AnalogNVM*>(arrayHO->cell[0][0])) {  // Analog eNVM
+						double pSumMaxAlgorithm = pow(2, n) / (param->numInputLevel - 1) * arrayHH->arrayRowSize;    // Max algorithm partial weighted sum for the nth vector bit (if both max input value and max weight are 1)
+						if (AnalogNVM *temp = dynamic_cast<AnalogNVM*>(arrayHH->cell[0][0])) {  // Analog eNVM
 							double Isum = 0;    // weighted sum current
 							double IsumMax = 0; // Max weighted sum current
 							double a1Sum = 0;   // Weighted sum current of a1 vector * weight=1 column
 							for (int k=0; k<param->nHide; k++) {
 								if ((da1[k]>>n) & 1) {    // if the nth bit of da1[k] is 1
-									Isum += arrayHO->ReadCell(j,k);
-									a1Sum += arrayHO->GetAvgCellReadCurrent(j,k);
-									sumArrayReadEnergy += arrayHO->wireCapRow * readVoltage * readVoltage; // Selected BLs (1T1R) or Selected WLs (cross-point)
+									Isum += arrayHH->ReadCell(j,k);
+									a1Sum += arrayHH->GetAvgCellReadCurrent(j,k);
+									sumArrayReadEnergy += arrayHH->wireCapRow * readVoltage * readVoltage; // Selected BLs (1T1R) or Selected WLs (cross-point)
 								}
-								IsumMax += arrayHO->GetDiffCellReadCurrent(j,k);
+								IsumMax += arrayHH->GetDiffCellReadCurrent(j,k);
 							}
 							sumArrayReadEnergy += Isum * readVoltage * readPulseWidth;
 							int outputDigits = 2 * CurrentToDigits(Isum, IsumMax) - CurrentToDigits(a1Sum, IsumMax);
@@ -222,22 +235,23 @@ void Train(const int numTrain, const int epochs) {
 							int a1Sum = 0;
 							for (int k=0; k<param->nHide; k++) {
 								if ((da1[k]>>n) & 1) {    // if the nth bit of da1[k] is 1
-									Dsum += (int)(arrayHO->ReadCell(j,k));
-									a1Sum += pow(2, arrayHO->numCellPerSynapse) - 1;
+									Dsum += (int)(arrayHH->ReadCell(j,k));
+									a1Sum += pow(2, arrayHH->numCellPerSynapse) - 1;
 								}
-								DsumMax += pow(2, arrayHO->numCellPerSynapse) - 1;
+								DsumMax += pow(2, arrayHH->numCellPerSynapse) - 1;
 							}
-							if (DigitalNVM *temp = dynamic_cast<DigitalNVM*>(arrayHO->cell[0][0])) {    // Digital eNVM
-								sumArrayReadEnergy += static_cast<DigitalNVM*>(arrayHO->cell[0][0])->readEnergy * arrayHO->numCellPerSynapse * arrayHO->arrayRowSize;
+							if (DigitalNVM *temp = dynamic_cast<DigitalNVM*>(arrayHH->cell[0][0])) {    // Digital eNVM
+								sumArrayReadEnergy += static_cast<DigitalNVM*>(arrayHH->cell[0][0])->readEnergy * arrayHH->numCellPerSynapse * arrayHH->arrayRowSize;
 							} else {
-								sumArrayReadEnergy += static_cast<SRAM*>(arrayHO->cell[0][0])->readEnergy * arrayHO->numCellPerSynapse * arrayHO->arrayRowSize;
+								sumArrayReadEnergy += static_cast<SRAM*>(arrayHH->cell[0][0])->readEnergy * arrayHH->numCellPerSynapse * arrayHH->arrayRowSize;
 							}
 							outN2[j] += (double)(2 * Dsum - a1Sum) / DsumMax * pSumMaxAlgorithm;
 						}
 					}
 					a2[j] = sigmoid(outN2[j]);
+					da2[j] = round_th(a2[j] * (param->numInputLevel - 1), param->Hthreshold);
 				}
-				arrayHO->readEnergy += sumArrayReadEnergy;
+				arrayHH->readEnergy += sumArrayReadEnergy;
 
 				numBatchReadSynapse = (int)ceil((double)param->nOutput/param->numColMuxed);
 				// Don't parallelize this loop since there may be update of member variables inside NeuroSim functions
@@ -250,33 +264,132 @@ void Train(const int numTrain, const int epochs) {
 							}
 						}
 					}
-					subArrayHO->activityRowRead = (double)numActiveRows/param->nHide/param->numBitInput;
-					subArrayHO->readDynamicEnergy += NeuroSimSubArrayReadEnergy(subArrayHO);
-					subArrayHO->readDynamicEnergy += NeuroSimNeuronReadEnergy(subArrayHO, adderHO, muxHO, muxDecoderHO, dffHO);
-					subArrayHO->readLatency += NeuroSimSubArrayReadLatency(subArrayHO);
-					subArrayHO->readLatency += NeuroSimNeuronReadLatency(subArrayHO, adderHO, muxHO, muxDecoderHO, dffHO);
+					subArrayHH->activityRowRead = (double)numActiveRows/param->nHide/param->numBitInput;
+					subArrayHH->readDynamicEnergy += NeuroSimSubArrayReadEnergy(subArrayHH);
+					subArrayHH->readDynamicEnergy += NeuroSimNeuronReadEnergy(subArrayHH, adderHH, muxHH, muxDecoderHH, dffHH);
+					subArrayHH->readLatency += NeuroSimSubArrayReadLatency(subArrayHH);
+					subArrayHH->readLatency += NeuroSimNeuronReadLatency(subArrayHH, adderHH, muxHH, muxDecoderHH, dffHH);
 				}
 			} else {
 				#pragma omp parallel for
-				for (int j = 0; j < param->nOutput; j++) {
+				for (int j = 0; j < param->nHide2; j++) {
 					for (int k = 0; k < param->nHide; k++) {
 						outN2[j] += 2 * a1[k] * weight2[j][k] - a1[k];
 					}
 					a2[j] = sigmoid(outN2[j]);
 				}
 			}
+			/* Third layer (hidden layer2 to the h) */
+			std::fill_n(outN3, param->nOutput, 0);
+			std::fill_n(a3, param->nOutput, 0);
+			if (param->useHardwareInTrainingFF) {   // Hardware
+				double sumArrayReadEnergy = 0;  // Use a temporary variable here since OpenMP does not support reduction on class member
+				double readVoltage = static_cast<eNVM*>(arrayHO->cell[0][0])->readVoltage;
+				double readPulseWidth = static_cast<eNVM*>(arrayHO->cell[0][0])->readPulseWidth;
+		#pragma omp parallel for reduction(+: sumArrayReadEnergy)
+				for (int j = 0; j < param->nOutput; j++) {
+					if (AnalogNVM * temp = dynamic_cast<AnalogNVM*>(arrayHO->cell[0][0])) {  // Analog eNVM
+						if (static_cast<eNVM*>(arrayHO->cell[0][0])->cmosAccess) {  // 1T1R
+							sumArrayReadEnergy += arrayHO->wireGateCapRow * techHO.vdd * techHO.vdd * param->nHide2; // All WLs open
+						}
+					}
+					else if (DigitalNVM * temp = dynamic_cast<DigitalNVM*>(arrayHO->cell[0][0])) { // Digital eNVM
+						if (static_cast<eNVM*>(arrayHO->cell[0][0])->cmosAccess) {  // 1T1R
+							sumArrayReadEnergy += arrayHO->wireGateCapRow * techHO.vdd * techHO.vdd;    // Selected WL
+						}
+						else {    // Cross-point
+							sumArrayReadEnergy += arrayHO->wireCapRow * techHO.vdd * techHO.vdd * (param->nHide2 - 1);   // Unselected WLs
+						}
+					}
+					for (int n = 0; n < param->numBitInput; n++) {
+						double pSumMaxAlgorithm = pow(2, n) / (param->numInputLevel - 1) * arrayHO->arrayRowSize;    // Max algorithm partial weighted sum for the nth vector bit (if both max input value and max weight are 1)
+						if (AnalogNVM * temp = dynamic_cast<AnalogNVM*>(arrayHO->cell[0][0])) {  // Analog eNVM
+							double Isum = 0;    // weighted sum current
+							double IsumMax = 0; // Max weighted sum current
+							double a1Sum = 0;   // Weighted sum current of a1 vector * weight=1 column
+							for (int k = 0; k < param->nHide2; k++) {
+								if ((da2[k] >> n) & 1) {    // if the nth bit of da1[k] is 1
+									Isum += arrayHO->ReadCell(j, k);
+									a1Sum += arrayHO->GetAvgCellReadCurrent(j, k);
+									sumArrayReadEnergy += arrayHO->wireCapRow * readVoltage * readVoltage; // Selected BLs (1T1R) or Selected WLs (cross-point)
+								}
+								IsumMax += arrayHO->GetDiffCellReadCurrent(j, k);
+							}
+							sumArrayReadEnergy += Isum * readVoltage * readPulseWidth;
+							int outputDigits = 2 * CurrentToDigits(Isum, IsumMax) - CurrentToDigits(a1Sum, IsumMax);
+							outN3[j] += DigitsToAlgorithm(outputDigits, pSumMaxAlgorithm);
+						}
+						else {    // SRAM or digital eNVM
+							int Dsum = 0;
+							int DsumMax = 0;
+							int a1Sum = 0;
+							for (int k = 0; k < param->nHide2; k++) {
+								if ((da1[k] >> n) & 1) {    // if the nth bit of da1[k] is 1
+									Dsum += (int)(arrayHO->ReadCell(j, k));
+									a1Sum += pow(2, arrayHO->numCellPerSynapse) - 1;
+								}
+								DsumMax += pow(2, arrayHO->numCellPerSynapse) - 1;
+							}
+							if (DigitalNVM * temp = dynamic_cast<DigitalNVM*>(arrayHO->cell[0][0])) {    // Digital eNVM
+								sumArrayReadEnergy += static_cast<DigitalNVM*>(arrayHO->cell[0][0])->readEnergy * arrayHO->numCellPerSynapse * arrayHO->arrayRowSize;
+							}
+							else {
+								sumArrayReadEnergy += static_cast<SRAM*>(arrayHO->cell[0][0])->readEnergy * arrayHO->numCellPerSynapse * arrayHO->arrayRowSize;
+							}
+							outN3[j] += (double)(2 * Dsum - a1Sum) / DsumMax * pSumMaxAlgorithm;
+						}
+					}
+					a3[j] = sigmoid(outN3[j]);
+				}
+				arrayHO->readEnergy += sumArrayReadEnergy;
 
+				numBatchReadSynapse = (int)ceil((double)param->nOutput / param->numColMuxed);
+				// Don't parallelize this loop since there may be update of member variables inside NeuroSim functions
+				for (int j = 0; j < param->nOutput; j += numBatchReadSynapse) {
+					int numActiveRows = 0;  // Number of selected rows for NeuroSim
+					for (int n = 0; n < param->numBitInput; n++) {
+						for (int k = 0; k < param->nHide2; k++) {
+							if ((da2[k] >> n) & 1) {    // if the nth bit of da1[k] is 1
+								numActiveRows++;
+							}
+						}
+					}
+					subArrayHO->activityRowRead = (double)numActiveRows / param->nHide2 / param->numBitInput;
+					subArrayHO->readDynamicEnergy += NeuroSimSubArrayReadEnergy(subArrayHO);
+					subArrayHO->readDynamicEnergy += NeuroSimNeuronReadEnergy(subArrayHO, adderHO, muxHO, muxDecoderHO, dffHO);
+					subArrayHO->readLatency += NeuroSimSubArrayReadLatency(subArrayHO);
+					subArrayHO->readLatency += NeuroSimNeuronReadLatency(subArrayHO, adderHO, muxHO, muxDecoderHO, dffHO);
+				}
+			}
+			else {
+#pragma omp parallel for
+				for (int j = 0; j < param->nOutput; j++) {
+					for (int k = 0; k < param->nHide2; k++) {
+						outN3[j] += 2 * a2[k] * weight3[j][k] - a2[k];
+					}
+					a3[j] = sigmoid(outN3[j]);
+				}
+			}
 			// Backpropagation
-			/* Second layer (hidder layer to the output layer) */
-			for (int j = 0; j < param->nOutput; j++){
-				s2[j] = -2 * a2[j] * (1 - a2[j])*(Output[i][j] - a2[j]);
+				/* Third layer (hidder layer2 to the output layer) */
+			for (int j = 0; j < param->nOutput; j++) {
+				s3[j] = -2 * a3[j] * (1 - a3[j]) * (Output[i][j] - a3[j]);
+			}
+			
+			/* First layer (input layer to the hidden layer) */
+			std::fill_n(s2, param->nHide2, 0);
+			#pragma omp parallel for
+			for (int j = 0; j < param->nHide2; j++) {
+				for (int k = 0; k < param->nOutput; k++) {
+					s2[j] += a2[j] * (1 - a2[j]) * (2 * weight3[k][j] - 1) * s3[k];
+				}
 			}
 
 			/* First layer (input layer to the hidden layer) */
 			std::fill_n(s1, param->nHide, 0);
 			#pragma omp parallel for
 			for (int j = 0; j < param->nHide; j++) {
-				for (int k = 0; k < param->nOutput; k++) {
+				for (int k = 0; k < param->nHide2; k++) {
 					s1[j] += a1[j] * (1 - a1[j]) * (2 * weight2[k][j] - 1) * s2[k];
 				}
 			}
@@ -488,7 +601,224 @@ void Train(const int numTrain, const int epochs) {
 					}
 				}
 			}
-
+			/* Update weight of the Second layer (hidden layer to the hidden layer2) */
+			if (param->useHardwareInTrainingWU) {
+				double sumArrayWriteEnergy = 0;   // Use a temporary variable here since OpenMP does not support reduction on class member
+				double sumNeuroSimWriteEnergy = 0;   // Use a temporary variable here since OpenMP does not support reduction on class member
+				double sumWriteLatencyAnalogNVM = 0;   // Use a temporary variable here since OpenMP does not support reduction on class member
+				double numWriteOperation = 0;	// Average number of write batches in the whole array. Use a temporary variable here since OpenMP does not support reduction on class member
+				double writeVoltageLTP = static_cast<eNVM*>(arrayHH->cell[0][0])->writeVoltageLTP;
+				double writeVoltageLTD = static_cast<eNVM*>(arrayHH->cell[0][0])->writeVoltageLTD;
+				double writePulseWidthLTP = static_cast<eNVM*>(arrayHH->cell[0][0])->writePulseWidthLTP;
+				double writePulseWidthLTD = static_cast<eNVM*>(arrayHH->cell[0][0])->writePulseWidthLTD;
+				numBatchWriteSynapse = (int)ceil((double)arrayHH->arrayColSize / param->numWriteColMuxed);
+#pragma omp parallel for reduction(+: sumArrayWriteEnergy, sumNeuroSimWriteEnergy, sumWriteLatencyAnalogNVM)
+				for (int k = 0; k < param->nHide; k++) {
+					int numWriteOperationPerRow = 0;	// Number of write batches in a row that have any weight change
+					int numWriteCellPerOperation = 0;	// Average number of write cells per batch in a row (for digital eNVM)
+					for (int j = 0; j < param->nHide2; j += numBatchWriteSynapse) {
+						/* Batch write */
+						int start = j;
+						int end = j + numBatchWriteSynapse - 1;
+						if (end >= param->nHide2) {
+							end = param->nHide2 - 1;
+						}
+						double maxLatencyLTP = 0;	// Max latency for AnalogNVM's LTP or weight increase in this batch write
+						double maxLatencyLTD = 0;	// Max latency for AnalogNVM's LTD or weight decrease in this batch write
+						bool weightChangeBatch = false;	// Specify if there is any weight change in the entire write batch
+						for (int jj = start; jj <= end; jj++) { // Selected cells
+							deltaWeight2[jj][k] = -param->alpha2 * s2[jj] * a1[k];
+							arrayHH->WriteCell(jj, k, deltaWeight2[jj][k], param->maxWeight, param->minWeight, true);
+							weight2[jj][k] = arrayHH->ConductanceToWeight(jj, k, param->maxWeight, param->minWeight);
+							if (AnalogNVM * temp = dynamic_cast<AnalogNVM*>(arrayHH->cell[jj][k])) {	// Analog eNVM
+								weightChangeBatch = weightChangeBatch || static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->numPulse;
+								/* Get maxLatencyLTP and maxLatencyLTD */
+								if (static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->writeLatencyLTP > maxLatencyLTP)
+									maxLatencyLTP = static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->writeLatencyLTP;
+								if (static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->writeLatencyLTD > maxLatencyLTD)
+									maxLatencyLTD = static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->writeLatencyLTD;
+							}
+							else {	// SRAM and digital eNVM
+								weightChangeBatch = weightChangeBatch || arrayHH->weightChange[jj][k];
+							}
+						}
+						numWriteOperationPerRow += weightChangeBatch;
+						for (int jj = start; jj <= end; jj++) { // Selected cells
+							if (AnalogNVM * temp = dynamic_cast<AnalogNVM*>(arrayHH->cell[0][0])) {  // Analog eNVM
+								/* Set the max latency for all the selected cells in this batch */
+								static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->writeLatencyLTP = maxLatencyLTP;
+								static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->writeLatencyLTD = maxLatencyLTD;
+								if (param->writeEnergyReport && weightChangeBatch) {
+									if (static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->nonIdenticalPulse) {	// Non-identical write pulse scheme
+										if (static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->numPulse > 0) {	// LTP
+											static_cast<eNVM*>(arrayHH->cell[jj][k])->writeVoltageLTP = sqrt(static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->writeVoltageSquareSum / static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->numPulse);	// RMS value of LTP write voltage
+											static_cast<eNVM*>(arrayHH->cell[jj][k])->writeVoltageLTD = static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->VinitLTD + 0.5 * static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->VstepLTD * static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->maxNumLevelLTD;	// Use average voltage of LTD write voltage
+										}
+										else if (static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->numPulse < 0) {	// LTD
+											static_cast<eNVM*>(arrayHH->cell[jj][k])->writeVoltageLTP = static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->VinitLTP + 0.5 * static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->VstepLTP * static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->maxNumLevelLTP;    // Use average voltage of LTP write voltage
+											static_cast<eNVM*>(arrayHH->cell[jj][k])->writeVoltageLTD = sqrt(static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->writeVoltageSquareSum / (-1 * static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->numPulse));    // RMS value of LTD write voltage
+										}
+										else {	// Half-selected during LTP and LTD phases
+											static_cast<eNVM*>(arrayHH->cell[jj][k])->writeVoltageLTP = static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->VinitLTP + 0.5 * static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->VstepLTP * static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->maxNumLevelLTP;    // Use average voltage of LTP write voltage
+											static_cast<eNVM*>(arrayHH->cell[jj][k])->writeVoltageLTD = static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->VinitLTD + 0.5 * static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->VstepLTD * static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->maxNumLevelLTD;    // Use average voltage of LTD write voltage
+										}
+									}
+									static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->WriteEnergyCalculation(arrayHH->wireCapCol);
+									sumArrayWriteEnergy += static_cast<AnalogNVM*>(arrayHH->cell[jj][k])->writeEnergy;
+								}
+							}
+							else if (DigitalNVM * temp = dynamic_cast<DigitalNVM*>(arrayHH->cell[0][0])) { // Digital eNVM
+								if (param->writeEnergyReport && arrayHH->weightChange[jj][k]) {
+									for (int n = 0; n < arrayHH->numCellPerSynapse; n++) {  // n=0 is LSB
+										sumArrayWriteEnergy += static_cast<DigitalNVM*>(arrayHH->cell[(jj + 1) * arrayHH->numCellPerSynapse - (n + 1)][k])->writeEnergy;
+										int bitPrev = static_cast<DigitalNVM*>(arrayHH->cell[(jj + 1) * arrayHH->numCellPerSynapse - (n + 1)][k])->bitPrev;
+										int bit = static_cast<DigitalNVM*>(arrayHH->cell[(jj + 1) * arrayHH->numCellPerSynapse - (n + 1)][k])->bit;
+										if (bit != bitPrev) {
+											numWriteCellPerOperation += 1;
+										}
+									}
+								}
+							}
+							else {    // SRAM
+								if (param->writeEnergyReport && arrayHH->weightChange[jj][k]) {
+									sumArrayWriteEnergy += static_cast<SRAM*>(arrayHH->cell[jj * arrayHH->numCellPerSynapse][k])->writeEnergy;
+								}
+							}
+						}
+						/* Latency for each batch write in Analog eNVM */
+						if (AnalogNVM * temp = dynamic_cast<AnalogNVM*>(arrayHH->cell[0][0])) {	// Analog eNVM
+							sumWriteLatencyAnalogNVM += maxLatencyLTP + maxLatencyLTD;
+						}
+						/* Energy consumption on array caps for eNVM */
+						if (AnalogNVM * temp = dynamic_cast<AnalogNVM*>(arrayHH->cell[0][0])) {  // Analog eNVM
+							if (param->writeEnergyReport && weightChangeBatch) {
+								if (static_cast<AnalogNVM*>(arrayHH->cell[0][0])->nonIdenticalPulse) { // Non-identical write pulse scheme
+									writeVoltageLTP = static_cast<AnalogNVM*>(arrayHH->cell[0][0])->VinitLTP + 0.5 * static_cast<AnalogNVM*>(arrayHH->cell[0][0])->VstepLTP * static_cast<AnalogNVM*>(arrayHH->cell[0][0])->maxNumLevelLTP;    // Use average voltage of LTP write voltage
+									writeVoltageLTD = static_cast<AnalogNVM*>(arrayHH->cell[0][0])->VinitLTD + 0.5 * static_cast<AnalogNVM*>(arrayHH->cell[0][0])->VstepLTD * static_cast<AnalogNVM*>(arrayHH->cell[0][0])->maxNumLevelLTD;    // Use average voltage of LTD write voltage
+								}
+								if (static_cast<eNVM*>(arrayHH->cell[0][0])->cmosAccess) {  // 1T1R
+									// The energy on selected SLs is included in WriteCell()
+									sumArrayWriteEnergy += arrayHH->wireGateCapRow * techIH.vdd * techIH.vdd * 2;   // Selected WL (*2 means both LTP and LTD phases)
+									sumArrayWriteEnergy += arrayHH->wireCapRow * writeVoltageLTP * writeVoltageLTP;   // Selected BL (LTP phases)
+									sumArrayWriteEnergy += arrayHH->wireCapCol * writeVoltageLTP * writeVoltageLTP * (param->nHide - numBatchWriteSynapse);   // Unselected SLs (LTP phase)
+									// No LTD part because all unselected rows and columns are V=0
+								}
+								else {
+									sumArrayWriteEnergy += arrayHH->wireCapRow * writeVoltageLTP * writeVoltageLTP;    // Selected WL (LTP phase)
+									sumArrayWriteEnergy += arrayHH->wireCapRow * writeVoltageLTP / 2 * writeVoltageLTP / 2 * (param->nInput - 1);  // Unselected WLs (LTP phase)
+									sumArrayWriteEnergy += arrayHH->wireCapCol * writeVoltageLTP / 2 * writeVoltageLTP / 2 * (param->nHide - numBatchWriteSynapse);   // Unselected BLs (LTP phase)
+									sumArrayWriteEnergy += arrayHH->wireCapRow * writeVoltageLTD / 2 * writeVoltageLTD / 2 * (param->nInput - 1);    // Unselected WLs (LTD phase)
+									sumArrayWriteEnergy += arrayHH->wireCapCol * writeVoltageLTD / 2 * writeVoltageLTD / 2 * (param->nHide - numBatchWriteSynapse); // Unselected BLs (LTD phase)
+								}
+							}
+						}
+						else if (DigitalNVM * temp = dynamic_cast<DigitalNVM*>(arrayHH->cell[0][0])) { // Digital eNVM
+							if (param->writeEnergyReport && weightChangeBatch) {
+								if (static_cast<eNVM*>(arrayHH->cell[0][0])->cmosAccess) {  // 1T1R
+									// The energy on selected columns is included in WriteCell()
+									sumArrayWriteEnergy += arrayHH->wireGateCapRow * techIH.vdd * techIH.vdd * 2;   // Selected WL (*2 for both SET and RESET phases)
+								}
+								else {    // Cross-point
+									sumArrayWriteEnergy += arrayHH->wireCapRow * writeVoltageLTP * writeVoltageLTP;   // Selected WL (SET phase)
+									sumArrayWriteEnergy += arrayHH->wireCapRow * writeVoltageLTP / 2 * writeVoltageLTP / 2 * (param->nInput - 1);    // Unselected WLs (SET phase)
+									sumArrayWriteEnergy += arrayHH->wireCapCol * writeVoltageLTP / 2 * writeVoltageLTP / 2 * (param->nHide - numBatchWriteSynapse) * arrayHH->numCellPerSynapse;   // Unselected BLs (SET phase)
+									sumArrayWriteEnergy += arrayHH->wireCapRow * writeVoltageLTD / 2 * writeVoltageLTD / 2 * (param->nInput - 1);   // Unselected WLs (RESET phase)
+									sumArrayWriteEnergy += arrayHH->wireCapCol * writeVoltageLTD / 2 * writeVoltageLTD / 2 * (param->nHide - numBatchWriteSynapse) * arrayHH->numCellPerSynapse;   // Unselected BLs (RESET phase)
+								}
+							}
+						}
+						/* Half-selected cells for eNVM */
+						if (AnalogNVM * temp = dynamic_cast<AnalogNVM*>(arrayHH->cell[0][0])) {  // Analog eNVM
+							if (!static_cast<eNVM*>(arrayHH->cell[0][0])->cmosAccess && param->writeEnergyReport) { // Cross-point
+								for (int jj = 0; jj < param->nHide; jj++) { // Half-selected cells in the same row
+									if (jj >= start && jj <= end) { continue; } // Skip the selected cells
+									sumArrayWriteEnergy += (writeVoltageLTP / 2 * writeVoltageLTP / 2 * static_cast<eNVM*>(arrayHH->cell[jj][k])->conductanceAtHalfVwLTP * maxLatencyLTP + writeVoltageLTD / 2 * writeVoltageLTD / 2 * static_cast<eNVM*>(arrayHH->cell[jj][k])->conductanceAtHalfVwLTD * maxLatencyLTD);
+								}
+								for (int kk = 0; kk < param->nInput; kk++) {    // Half-selected cells in other rows
+									// Note that here is a bit inaccurate if using OpenMP, because the weight on other rows (threads) are also being updated
+									if (kk == k) { continue; } // Skip the selected row
+									for (int jj = start; jj <= end; jj++) {
+										sumArrayWriteEnergy += (writeVoltageLTP / 2 * writeVoltageLTP / 2 * static_cast<eNVM*>(arrayHH->cell[jj][kk])->conductanceAtHalfVwLTP * maxLatencyLTP + writeVoltageLTD / 2 * writeVoltageLTD / 2 * static_cast<eNVM*>(arrayHH->cell[jj][kk])->conductanceAtHalfVwLTD * maxLatencyLTD);
+									}
+								}
+							}
+						}
+						else if (DigitalNVM * temp = dynamic_cast<DigitalNVM*>(arrayHH->cell[0][0])) { // Digital eNVM
+							if (!static_cast<eNVM*>(arrayHH->cell[0][0])->cmosAccess && param->writeEnergyReport && weightChangeBatch) { // Cross-point
+								for (int jj = 0; jj < param->nHide; jj++) {    // Half-selected synapses in the same row
+									if (jj >= start && jj <= end) { continue; } // Skip the selected synapses
+									for (int n = 0; n < arrayHH->numCellPerSynapse; n++) {  // n=0 is LSB
+										int colIndex = (jj + 1) * arrayHH->numCellPerSynapse - (n + 1);
+										sumArrayWriteEnergy += writeVoltageLTP / 2 * writeVoltageLTP / 2 * static_cast<eNVM*>(arrayHH->cell[colIndex][k])->conductanceAtHalfVwLTP * maxLatencyLTP + writeVoltageLTD / 2 * writeVoltageLTD / 2 * static_cast<eNVM*>(arrayHH->cell[colIndex][k])->conductanceAtHalfVwLTD * maxLatencyLTD;
+									}
+								}
+								for (int kk = 0; kk < param->nInput; kk++) {   // Half-selected synapses in other rows
+									// Note that here is a bit inaccurate if using OpenMP, because the weight on other rows (threads) are also being updated
+									if (kk == k) { continue; } // Skip the selected row
+									for (int jj = start; jj <= end; jj++) {
+										for (int n = 0; n < arrayHH->numCellPerSynapse; n++) {  // n=0 is LSB
+											int colIndex = (jj + 1) * arrayHH->numCellPerSynapse - (n + 1);
+											sumArrayWriteEnergy += writeVoltageLTP / 2 * writeVoltageLTP / 2 * static_cast<eNVM*>(arrayHH->cell[colIndex][kk])->conductanceAtHalfVwLTP * maxLatencyLTP + writeVoltageLTD / 2 * writeVoltageLTD / 2 * static_cast<eNVM*>(arrayHH->cell[colIndex][kk])->conductanceAtHalfVwLTD * maxLatencyLTD;
+										}
+									}
+								}
+							}
+						}
+					}
+					/* Calculate the average number of write pulses on the selected row */
+#pragma omp critical    // Use critical here since NeuroSim class functions may update its member variables
+					{
+						if (AnalogNVM * temp = dynamic_cast<AnalogNVM*>(arrayHH->cell[0][0])) {  // Analog eNVM
+							int sumNumWritePulse = 0;
+							for (int j = 0; j < param->nHide; j++) {
+								sumNumWritePulse += abs(static_cast<AnalogNVM*>(arrayHH->cell[j][k])->numPulse);    // Note that LTD has negative pulse number
+							}
+							subArrayHH->numWritePulse = sumNumWritePulse / param->nHide;
+							double writeVoltageSquareSumRow = 0;
+							if (param->writeEnergyReport) {
+								if (static_cast<AnalogNVM*>(arrayHH->cell[0][0])->nonIdenticalPulse) { // Non-identical write pulse scheme
+									for (int j = 0; j < param->nHide; j++) {
+										writeVoltageSquareSumRow += static_cast<AnalogNVM*>(arrayHH->cell[j][k])->writeVoltageSquareSum;
+									}
+									if (sumNumWritePulse > 0) {	// Prevent division by 0
+										subArrayHH->cell.writeVoltage = sqrt(writeVoltageSquareSumRow / sumNumWritePulse);	// RMS value of write voltage in a row
+									}
+									else {
+										subArrayHH->cell.writeVoltage = 0;
+									}
+								}
+							}
+						}
+						numWriteCellPerOperation = (double)numWriteCellPerOperation / numWriteOperationPerRow;
+						sumNeuroSimWriteEnergy += NeuroSimSubArrayWriteEnergy(subArrayHH, numWriteOperationPerRow, numWriteCellPerOperation);
+					}
+					numWriteOperation += numWriteOperationPerRow;
+				}
+				arrayHH->writeEnergy += sumArrayWriteEnergy;
+				subArrayHH->writeDynamicEnergy += sumNeuroSimWriteEnergy;
+				numWriteOperation = numWriteOperation / param->nInput;
+				subArrayHH->writeLatency += NeuroSimSubArrayWriteLatency(subArrayHH, numWriteOperation, sumWriteLatencyAnalogNVM);
+			}
+			else {
+#pragma omp parallel for
+				for (int j = 0; j < param->nHide2; j++) {
+					for (int k = 0; k < param->nHide; k++) {
+						deltaWeight2[j][k] = -param->alpha2 * s2[j] * a1[k];
+						weight2[j][k] = weight2[j][k] + deltaWeight2[j][k];
+						if (weight2[j][k] > param->maxWeight) {
+							deltaWeight2[j][k] -= weight2[j][k] - param->maxWeight;
+							weight2[j][k] = param->maxWeight;
+						}
+						else if (weight2[j][k] < param->minWeight) {
+							deltaWeight2[j][k] += param->minWeight - weight2[j][k];
+							weight2[j][k] = param->minWeight;
+						}
+						if (param->useHardwareInTrainingFF) {
+							arrayHH->WriteCell(j, k, deltaWeight2[j][k], param->maxWeight, param->minWeight, false);
+						}
+					}
+				}
+			}
 			/* Update weight of the second layer (hidden layer to the output layer) */
 			if (param->useHardwareInTrainingWU) {
 				double sumArrayWriteEnergy = 0;   // Use a temporary variable here since OpenMP does not support reduction on class member
@@ -501,7 +831,7 @@ void Train(const int numTrain, const int epochs) {
 				double writePulseWidthLTD = static_cast<eNVM*>(arrayHO->cell[0][0])->writePulseWidthLTD;
 				numBatchWriteSynapse = (int)ceil((double)arrayHO->arrayColSize / param->numWriteColMuxed);
 				#pragma omp parallel for reduction(+: sumArrayWriteEnergy, sumNeuroSimWriteEnergy, sumWriteLatencyAnalogNVM)
-				for (int k = 0; k < param->nHide; k++) {
+				for (int k = 0; k < param->nHide2; k++) {
 					int numWriteOperationPerRow = 0;    // Number of write batches in a row that have any weight change
 					int numWriteCellPerOperation = 0;   // Average number of write cells per batch in a row (for digital eNVM)
 					for (int j = 0; j < param->nOutput; j+=numBatchWriteSynapse) {
@@ -515,9 +845,9 @@ void Train(const int numTrain, const int epochs) {
 						double maxLatencyLTD = 0;   // Max latency for AnalogNVM's LTD or weight decrease in this batch write
 						bool weightChangeBatch = false; // Specify if there is any weight change in the entire write batch
 						for (int jj = start; jj <= end; jj++) { // Selected cells
-							deltaWeight2[jj][k] = -param->alpha2 * s2[jj] * a1[k];
-							arrayHO->WriteCell(jj, k, deltaWeight2[jj][k], param->maxWeight, param->minWeight, true);
-							weight2[jj][k] = arrayHO->ConductanceToWeight(jj, k, param->maxWeight, param->minWeight);
+							deltaWeight3[jj][k] = -param->alpha3 * s3[jj] * a2[k];
+							arrayHO->WriteCell(jj, k, deltaWeight3[jj][k], param->maxWeight, param->minWeight, true);
+							weight3[jj][k] = arrayHO->ConductanceToWeight(jj, k, param->maxWeight, param->minWeight);
 							if (AnalogNVM *temp = dynamic_cast<AnalogNVM*>(arrayHO->cell[jj][k])) { // Analog eNVM
 								weightChangeBatch = weightChangeBatch || static_cast<AnalogNVM*>(arrayHO->cell[jj][k])->numPulse;
 								/* Get maxLatencyLTP and maxLatencyLTD */
@@ -679,18 +1009,18 @@ void Train(const int numTrain, const int epochs) {
 			} else {
 				#pragma omp parallel for
 				for (int j = 0; j < param->nOutput; j++) {
-					for (int k = 0; k < param->nHide; k++) {
-						deltaWeight2[j][k] = -param->alpha2 * s2[j] * a1[k];
-						weight2[j][k] = weight2[j][k] + deltaWeight2[j][k];
-						if (weight2[j][k] > param->maxWeight) {
-							deltaWeight2[j][k] -= weight2[j][k] - param->maxWeight;
-							weight2[j][k] = param->maxWeight;
-						} else if (weight2[j][k] < param->minWeight) {
-							deltaWeight2[j][k] += param->minWeight - weight2[j][k];
-							weight2[j][k] = param->minWeight;
+					for (int k = 0; k < param->nHide2; k++) {
+						deltaWeight3[j][k] = -param->alpha3 * s3[j] * a2[k];
+						weight3[j][k] = weight3[j][k] + deltaWeight3[j][k];
+						if (weight3[j][k] > param->maxWeight) {
+							deltaWeight3[j][k] -= weight3[j][k] - param->maxWeight;
+							weight3[j][k] = param->maxWeight;
+						} else if (weight3[j][k] < param->minWeight) {
+							deltaWeight3[j][k] += param->minWeight - weight3[j][k];
+							weight3[j][k] = param->minWeight;
 						}
 						if (param->useHardwareInTrainingFF) {
-							arrayHO->WriteCell(j, k, deltaWeight2[j][k], param->maxWeight, param->minWeight, false);
+							arrayHO->WriteCell(j, k, deltaWeight3[j][k], param->maxWeight, param->minWeight, false);
 						}
 					}
 				}

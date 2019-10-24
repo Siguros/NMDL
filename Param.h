@@ -53,9 +53,11 @@ public:
 	int interNumEpochs;	// Internal number of epochs (print out the results every interNumEpochs)
 	int nInput;     // # of neurons in input layer
 	int nHide;      // # of neurons in hidden layer
+	int nHide2;
 	int nOutput;	// # of neurons in output layer
 	double alpha1;		// Learning rate for the synapses from input to hidden layer
-	double alpha2;		// Learning rate for the synapses from hidden to output layer
+	double alpha2;		// Learning rate for the synapses from hidden to hidden layer2
+	double alpha3; // Learning rate for the synapses from hidden to output layer
 	double maxWeight;	// Upper bound of weight value
 	double minWeight;	// Lower bound of weight value
 

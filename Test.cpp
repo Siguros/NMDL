@@ -54,17 +54,25 @@ extern std::vector< std::vector<double> > testOutput;
 
 extern std::vector< std::vector<double> > weight1;
 extern std::vector< std::vector<double> > weight2;
+extern std::vector< std::vector<double> > weight3;
 
 extern Technology techIH;
 extern Technology techHO;
+extern Technology techHH;
 extern Array *arrayIH;
 extern Array *arrayHO;
+extern Array *arrayHH;
 extern SubArray *subArrayIH;
 extern SubArray *subArrayHO;
+extern SubArray *subArrayHH;
 extern Adder adderIH;
 extern Mux muxIH;
 extern RowDecoder muxDecoderIH;
 extern DFF dffIH;
+extern Adder adderHH;
+extern Mux muxHH;
+extern RowDecoder muxDecoderHH;
+extern DFF dffHH;
 extern Adder adderHO;
 extern Mux muxHO;
 extern RowDecoder muxDecoderHO;
@@ -78,8 +86,11 @@ void Validate() {
 	double outN1[param->nHide]; // Net input to the hidden layer [param->nHide]
 	double a1[param->nHide];    // Net output of hidden layer [param->nHide] also the input of hidden layer to output layer
 	int da1[param->nHide];  // Digitized net output of hidden layer [param->nHide] also the input of hidden layer to output layer
-	double outN2[param->nOutput];   // Net input to the output layer [param->nOutput]
-	double a2[param->nOutput];  // Net output of output layer [param->nOutput]
+	double outN2[param->nHide2]; // Net input to the hidden layer [param->nHide]
+	double a2[param->nHide2];    // Net output of hidden layer [param->nHide] also the input of hidden layer to output layer
+	int da2[param->nHide2];  // Digitized net output of hidden layer [param->nHide] also the input of hidden layer to output layer
+	double outN3[param->nOutput];   // Net input to the output layer [param->nOutput]
+	double a3[param->nOutput];  // Net output of output layer [param->nOutput]
 	double tempMax;
 	int countNum;
 	correct = 0;
@@ -94,7 +105,7 @@ void Validate() {
 	double sumReadLatencyHO = 0;    // Use a temporary variable here since OpenMP does not support reduction on class member
 	double readVoltageHO = static_cast<eNVM*>(arrayHO->cell[0][0])->readVoltage;
 	double readPulseWidthHO = static_cast<eNVM*>(arrayHO->cell[0][0])->readPulseWidth;
-	#pragma omp parallel for private(outN1, a1, da1, outN2, a2, tempMax, countNum, numBatchReadSynapse) reduction(+: correct, sumArrayReadEnergyIH, sumNeuroSimReadEnergyIH, sumArrayReadEnergyHO, sumNeuroSimReadEnergyHO, sumReadLatencyIH, sumReadLatencyHO)
+	#pragma omp parallel for private(outN1, a1, da1, outN2, a2, outN3,a3,tempMax, countNum, numBatchReadSynapse) reduction(+: correct, sumArrayReadEnergyIH, sumNeuroSimReadEnergyIH, sumArrayReadEnergyHO, sumNeuroSimReadEnergyHO, sumReadLatencyIH, sumReadLatencyHO)
 	for (int i = 0; i < param->numMnistTestImages; i++)
 	{
 		// Forward propagation
@@ -123,10 +134,10 @@ void Validate() {
 						for (int k=0; k<param->nInput; k++) {
 							if ((dTestInput[i][k]>>n) & 1) {    // if the nth bit of dTestInput[i][k] is 1
 								Isum += arrayIH->ReadCell(j,k);
-								inputSum += arrayIH->GetAvgCellReadCurrent(j,k);
+								inputSum += arrayIH->GetMaxCellReadCurrent(j,k);
 								sumArrayReadEnergyIH += arrayIH->wireCapRow * readVoltageIH * readVoltageIH;   // Selected BLs (1T1R) or Selected WLs (cross-point)
 							}
-							IsumMax += arrayIH->GetDiffCellReadCurrent(j,k);
+							IsumMax += arrayIH->GetMaxCellReadCurrent(j,k);
 						}
 						sumArrayReadEnergyIH += Isum * readVoltageIH * readPulseWidthIH;
 						int outputDigits = 2 * CurrentToDigits(Isum, IsumMax) - CurrentToDigits(inputSum, IsumMax);
@@ -153,8 +164,8 @@ void Validate() {
 					}
 				}
 				a1[j] = sigmoid(outN1[j]);
-				//da1[j] = round(a1[j] * (param->numInputLevel - 1));
-				da1[j] = round_th(a1[j]*(param->numInputLevel-1), param->Hthreshold);
+				da1[j] = round(a1[j] * (param->numInputLevel - 1));
+				//da1[j] = round_th(a1[j]*(param->numInputLevel-1), param->Hthreshold);
 			}
 
 			numBatchReadSynapse = (int)ceil((double)param->nHide/param->numColMuxed);
@@ -182,12 +193,102 @@ void Validate() {
 				a1[j] = sigmoid(outN1[j]);
 			}
 		}
+		// Forward propagation
+		/* Second layer from input layer to the hidden layer */
+		std::fill_n(outN2, param->nHide2, 0);
+		std::fill_n(a2, param->nHide2, 0);
+		if (param->useHardwareInTestingFF) {    // Hardware
+			for (int j = 0; j < param->nHide2; j++) {
+				if (AnalogNVM * temp = dynamic_cast<AnalogNVM*>(arrayHH->cell[0][0])) {  // Analog eNVM
+					if (static_cast<eNVM*>(arrayHH->cell[0][0])->cmosAccess) {  // 1T1R
+						sumArrayReadEnergyIH += arrayHH->wireGateCapRow * techIH.vdd * techIH.vdd * param->nHide; // All WLs open
+					}
+				}
+				else if (DigitalNVM * temp = dynamic_cast<DigitalNVM*>(arrayHH->cell[0][0])) { // Digital eNVM
+					if (static_cast<eNVM*>(arrayHH->cell[0][0])->cmosAccess) {  // 1T1R
+						sumArrayReadEnergyIH += arrayHH->wireGateCapRow * techIH.vdd * techIH.vdd;  // Selected WL
+					}
+					else {    // Cross-point
+						sumArrayReadEnergyIH += arrayHH->wireCapRow * techIH.vdd * techIH.vdd * (param->nHide - 1);    // Unselected WLs
+					}
+				}
+				for (int n = 0; n < param->numBitInput; n++) {
+					double pSumMaxAlgorithm = pow(2, n) / (param->numInputLevel - 1) * arrayHH->arrayRowSize;   // Max algorithm partial weighted sum for the nth vector bit (if both max input value and max weight are 1)
+					if (AnalogNVM * temp = dynamic_cast<AnalogNVM*>(arrayHH->cell[0][0])) {  // Analog eNVM
+						double Isum = 0;    // weighted sum current
+						double IsumMax = 0; // Max weighted sum current
+						double inputSum = 0;    // Weighted sum current of input vector * weight=1 column
+						for (int k = 0; k < param->nHide; k++) {
+							//if ((da1[k] >> n) & 1) {
+								Isum += arrayHH->ReadCell(j, k)*a1[k];
+								inputSum += arrayHH->GetMaxCellReadCurrent(j, k)*a1[k];
+								sumArrayReadEnergyIH += arrayHH->wireCapRow * readVoltageIH * readVoltageIH;   // Selected BLs (1T1R) or Selected WLs (cross-point)
+							//}
+							
+							IsumMax += arrayHH->GetMaxCellReadCurrent(j, k);
+						}
+						sumArrayReadEnergyIH += Isum * readVoltageIH * readPulseWidthIH;
+						int outputDigits = 2 * CurrentToDigits(Isum, IsumMax) - CurrentToDigits(inputSum, IsumMax);
+						//std::cout << outputDigits << std::endl;
+						outN2[j] += DigitsToAlgorithm(outputDigits, pSumMaxAlgorithm);
 
-		/* Second layer from hidden layer to the output layer */
+					}
+					else {    // SRAM or digital eNVM
+						int Dsum = 0;
+						int DsumMax = 0;
+						int inputSum = 0;
+						for (int k = 0; k < param->nHide; k++) {
+							if ((dTestInput[i][k] >> n) & 1) {    // if the nth bit of dTestInput[i][k] is 1
+								Dsum += (int)(arrayHH->ReadCell(j, k));
+								inputSum += pow(2, arrayHH->numCellPerSynapse) - 1;
+							}
+							DsumMax += pow(2, arrayHH->numCellPerSynapse) - 1;
+						}
+						if (DigitalNVM * temp = dynamic_cast<DigitalNVM*>(arrayHH->cell[0][0])) {    // Digital eNVM
+							sumArrayReadEnergyIH += static_cast<DigitalNVM*>(arrayHH->cell[0][0])->readEnergy * arrayHH->numCellPerSynapse * arrayHH->arrayRowSize;
+						}
+						else {
+							sumArrayReadEnergyIH += static_cast<SRAM*>(arrayHH->cell[0][0])->readEnergy * arrayHH->numCellPerSynapse * arrayHH->arrayRowSize;
+						}
+						outN1[j] += (double)(2 * Dsum - inputSum) / DsumMax * pSumMaxAlgorithm;
+					}
+				}
+				a2[j] = sigmoid(outN2[j]);
+				da2[j] = round(a2[j] * (param->numInputLevel - 1));
+				//da2[j] = round_th(a2[j] * (param->numInputLevel - 1), param->Hthreshold);
+			}
+
+			numBatchReadSynapse = (int)ceil((double)param->nHide / param->numColMuxed);
+			#pragma omp critical    // Use critical here since NeuroSim class functions may update its member variables
+			for (int j = 0; j < param->nHide2; j += numBatchReadSynapse) {
+				int numActiveRows = 0;  // Number of selected rows for NeuroSim
+				for (int n = 0; n < param->numBitInput; n++) {
+					for (int k = 0; k < param->nHide2; k++) {
+						if ((da1[k] >> n) & 1) {    // if the nth bit of dTestInput[i][k] is 1
+							numActiveRows++;
+						}
+					}
+				}
+				subArrayHH->activityRowRead = (double)numActiveRows / param->nHide / param->numBitInput;
+				sumNeuroSimReadEnergyIH += NeuroSimSubArrayReadEnergy(subArrayHH);
+				sumNeuroSimReadEnergyIH += NeuroSimNeuronReadEnergy(subArrayHH, adderIH, muxIH, muxDecoderIH, dffIH);
+				sumReadLatencyIH += NeuroSimSubArrayReadLatency(subArrayHH);
+				sumReadLatencyIH += NeuroSimNeuronReadLatency(subArrayHH, adderIH, muxIH, muxDecoderIH, dffIH);
+			}
+		}
+		else {    // Algorithm
+			for (int j = 0; j < param->nHide2; j++) {
+				for (int k = 0; k < param->nHide; k++) {
+					outN2[j] += 2 * a1[k] * weight2[j][k] - a1[k];
+				}
+				a2[j] = sigmoid(outN2[j]);
+			}
+		}
+		/* Third layer from hidden layer to the output layer */
 		tempMax = 0;
 		countNum = 0;
-		std::fill_n(outN2, param->nOutput, 0);
-		std::fill_n(a2, param->nOutput, 0);
+		std::fill_n(outN3, param->nOutput, 0);
+		std::fill_n(a3, param->nOutput, 0);
 		if (param->useHardwareInTestingFF) {  // Hardware
 			for (int j=0; j<param->nOutput; j++) {
 				if (AnalogNVM *temp = dynamic_cast<AnalogNVM*>(arrayHO->cell[0][0])) {  // Analog eNVM
@@ -207,17 +308,17 @@ void Validate() {
 						double Isum = 0;    // weighted sum current
 						double IsumMax = 0; // Max weighted sum current
 						double a1Sum = 0;   // Weighted sum current of a1 vector * weight=1 column
-						for (int k=0; k<param->nHide; k++) {
-							if ((da1[k]>>n) & 1) {    // if the nth bit of da1[k] is 1
-								Isum += arrayHO->ReadCell(j,k);
-								a1Sum += arrayHO->GetAvgCellReadCurrent(j,k);
+						for (int k=0; k<param->nHide2; k++) {
+							//if ((da2[k] >> n) & 1) {
+								Isum += arrayHO->ReadCell(j, k)*a2[k];
+								a1Sum += arrayHO->GetMaxCellReadCurrent(j, k)*a2[k];
 								sumArrayReadEnergyHO += arrayHO->wireCapRow * readVoltageHO * readVoltageHO;   // Selected BLs (1T1R) or Selected WLs (cross-point)
-							}
-							IsumMax += arrayHO->GetDiffCellReadCurrent(j,k);
+							//}
+							IsumMax += arrayHO->GetMaxCellReadCurrent(j,k);
 						}
 						sumArrayReadEnergyHO += Isum * readVoltageHO * readPulseWidthHO;
 						int outputDigits = 2 * CurrentToDigits(Isum, IsumMax) - CurrentToDigits(a1Sum, IsumMax);
-						outN2[j] += DigitsToAlgorithm(outputDigits, pSumMaxAlgorithm);
+						outN3[j] += DigitsToAlgorithm(outputDigits, pSumMaxAlgorithm);
 					} else {    // SRAM or digital eNVM
 						int Dsum = 0;
 						int DsumMax = 0;
@@ -237,9 +338,9 @@ void Validate() {
 						outN2[j] += (double)(2 * Dsum - a1Sum) / DsumMax * pSumMaxAlgorithm;
 					}
 				}
-				a2[j] = sigmoid(outN2[j]);
-				if (a2[j] > tempMax) {
-					tempMax = a2[j];
+				a3[j] = sigmoid(outN3[j]);
+				if (a3[j] > tempMax) {
+					tempMax = a3[j];
 					countNum = j;
 				}
 			}
@@ -249,13 +350,13 @@ void Validate() {
 			for (int j=0; j<param->nOutput; j+=numBatchReadSynapse) {
 				int numActiveRows = 0;  // Number of selected rows for NeuroSim
 				for (int n=0; n<param->numBitInput; n++) {
-					for (int k=0; k<param->nHide; k++) {
-						if ((da1[k]>>n) & 1) {    // if the nth bit of da1[k] is 1
+					for (int k=0; k<param->nHide2; k++) {
+						if ((da2[k]>>n) & 1) {    // if the nth bit of da1[k] is 1
 							numActiveRows++;
 						}
 					}
 				}
-				subArrayHO->activityRowRead = (double)numActiveRows/param->nHide/param->numBitInput;
+				subArrayHO->activityRowRead = (double)numActiveRows/param->nHide2/param->numBitInput;
 				sumNeuroSimReadEnergyHO += NeuroSimSubArrayReadEnergy(subArrayHO);
 				sumNeuroSimReadEnergyHO += NeuroSimNeuronReadEnergy(subArrayHO, adderHO, muxHO, muxDecoderHO, dffHO);
 				sumReadLatencyHO += NeuroSimSubArrayReadLatency(subArrayHO);
@@ -263,12 +364,12 @@ void Validate() {
 			}
 		} else {    // Algorithm
 			for (int j=0; j<param->nOutput; j++) {
-				for (int k=0; k<param->nHide; k++) {
-					outN2[j] += 2 * a1[k] * weight2[j][k] - a1[k];
+				for (int k=0; k<param->nHide2; k++) {
+					outN3[j] += 2 * a2[k] * weight3[j][k] - a2[k];
 				}
-				a2[j] = sigmoid(outN2[j]);
-				if (a2[j] > tempMax) {
-					tempMax = a2[j];
+				a3[j] = sigmoid(outN3[j]);
+				if (a3[j] > tempMax) {
+					tempMax = a3[j];
 					countNum = j;
 				}
 			}
@@ -280,8 +381,10 @@ void Validate() {
 	if (param->PrintWeightdist) {
 		int numweight[10];
 		int numweight2[10];
+		int numweight3[10];
 		std::fill_n(numweight, 10, 0);
 		std::fill_n(numweight2, 10, 0);
+		std::fill_n(numweight3, 10, 0);
 		/* ARRAYIH*/
 		for (int i = 0; i < param->nHide; i++) {
 			for (int j = 0; j < param->nInput; j++) {
@@ -297,8 +400,8 @@ void Validate() {
 				else if (0.9 <= weight1[i][j] && weight1[i][j] <= 1) { numweight[9] += 1; }
 			}
 		}
-		/* ARRAYHO*/
-		for (int i = 0; i < param->nOutput; i++) {
+		/* ARRAYHH*/
+		for (int i = 0; i < param->nHide2; i++) {
 			for (int j = 0; j < param->nHide; j++) {
 				if (0 <= weight2[i][j] && weight2[i][j] < 0.1) { numweight2[0] += 1; }
 				else if (0.1 <= weight2[i][j] && weight2[i][j] < 0.2) { numweight2[1] += 1; }
@@ -312,11 +415,30 @@ void Validate() {
 				else if (0.9 <= weight2[i][j] && weight2[i][j] <= 1) { numweight2[9] += 1; }
 			}
 		}
+
+		/* ARRAYHO*/
+		for (int i = 0; i < param->nOutput; i++) {
+			for (int j = 0; j < param->nHide; j++) {
+				if (0 <= weight3[i][j] && weight3[i][j] < 0.1) { numweight3[0] += 1; }
+				else if (0.1 <= weight3[i][j] && weight3[i][j] < 0.2) { numweight3[1] += 1; }
+				else if (0.2 <= weight3[i][j] && weight3[i][j] < 0.3) { numweight3[2] += 1; }
+				else if (0.3 <= weight3[i][j] && weight3[i][j] < 0.4) { numweight3[3] += 1; }
+				else if (0.4 <= weight3[i][j] && weight3[i][j] < 0.5) { numweight3[4] += 1; }
+				else if (0.5 <= weight3[i][j] && weight3[i][j] < 0.6) { numweight3[5] += 1; }
+				else if (0.6 <= weight3[i][j] && weight3[i][j] < 0.7) { numweight3[6] += 1; }
+				else if (0.7 <= weight3[i][j] && weight3[i][j] < 0.8) { numweight3[7] += 1; }
+				else if (0.8 <= weight3[i][j] && weight3[i][j] < 0.9) { numweight3[8] += 1; }
+				else if (0.9 <= weight3[i][j] && weight3[i][j] <= 1) { numweight3[9] += 1; }
+			}
+		}
 		for (int i = 0; i < 10; i++) {
 			std::cout << "weight1" << i << ":" << numweight[i] << std::endl;
 		}
 		for (int i = 0; i < 10; i++) {
 			std::cout << "weight2" << i << ":" << numweight2[i] << std::endl;
+		}
+		for (int i = 0; i < 10; i++) {
+			std::cout << "weight3" << i << ":" << numweight3[i] << std::endl;
 		}
 	}
 	if (!param->useHardwareInTraining) {    // Calculate the classification latency and energy only for offline classification

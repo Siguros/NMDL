@@ -67,25 +67,30 @@ int main() {
 	
 	/* Initialization of synaptic array from hidden to output layer */
 	//arrayHO->Initialization<IdealDevice>();
-	arrayHO->Initialization<RealDevice>();
+	arrayHH->Initialization<RealDevice>();
 	//arrayHO->Initialization<MeasuredDevice>();
 	//arrayHO->Initialization<SRAM>(param->numWeightBit);
 	//arrayHO->Initialization<DigitalNVM>(param->numWeightBit);
+	arrayHO->Initialization<RealDevice>();
 
 	/* Initialization of NeuroSim synaptic cores */
 	param->relaxArrayCellWidth = 0;
 	NeuroSimSubArrayInitialize(subArrayIH, arrayIH, inputParameterIH, techIH, cellIH);
 	param->relaxArrayCellWidth = 1;
+	NeuroSimSubArrayInitialize(subArrayHH, arrayHH, inputParameterHH, techHH, cellHH);
 	NeuroSimSubArrayInitialize(subArrayHO, arrayHO, inputParameterHO, techHO, cellHO);
 	/* Calculate synaptic core area */
 	NeuroSimSubArrayArea(subArrayIH);
 	NeuroSimSubArrayArea(subArrayHO);
+	NeuroSimSubArrayArea(subArrayHH);
 	/* Calculate synaptic core standby leakage power */
 	NeuroSimSubArrayLeakagePower(subArrayIH);
+	NeuroSimSubArrayLeakagePower(subArrayHH);
 	NeuroSimSubArrayLeakagePower(subArrayHO);
 	
 	/* Initialize the neuron peripheries */
 	NeuroSimNeuronInitialize(subArrayIH, inputParameterIH, techIH, cellIH, adderIH, muxIH, muxDecoderIH, dffIH);
+	NeuroSimNeuronInitialize(subArrayHH, inputParameterHH, techHH, cellHH, adderHH, muxHH, muxDecoderHH, dffHH);
 	NeuroSimNeuronInitialize(subArrayHO, inputParameterHO, techHO, cellHO, adderHO, muxHO, muxDecoderHO, dffHO);
 	/* Calculate the area and standby leakage power of neuron peripheries below subArrayIH */
 	double heightNeuronIH, widthNeuronIH;
@@ -121,12 +126,13 @@ int main() {
 		Train(param->numTrainImagesPerEpoch, param->interNumEpochs);
 		if (!param->useHardwareInTraining && param->useHardwareInTestingFF) { WeightToConductance(); }
 		Validate();
-		printf("Accuracy at %d epochs is : %.2f%\n", i*param->interNumEpochs, (double)correct/param->numMnistTestImages*100);
+		//printf("Accuracy at %d epochs is : %.2f%\n", i*param->interNumEpochs, (double)correct/param->numMnistTestImages*100);
+		printf("%.2f\n", (double)correct / param->numMnistTestImages * 100);
 		/* Here the performance metrics of subArray also includes that of neuron peripheries (see Train.cpp and Test.cpp) */
-		printf("\tRead latency=%.4e s\n", subArrayIH->readLatency + subArrayHO->readLatency);
-		printf("\tWrite latency=%.4e s\n", subArrayIH->writeLatency + subArrayHO->writeLatency);
-		printf("\tRead energy=%.4e J\n", arrayIH->readEnergy + subArrayIH->readDynamicEnergy + arrayHO->readEnergy + subArrayHO->readDynamicEnergy);
-		printf("\tWrite energy=%.4e J\n", arrayIH->writeEnergy + subArrayIH->writeDynamicEnergy + arrayHO->writeEnergy + subArrayHO->writeDynamicEnergy);
+		//printf("\tRead latency=%.4e s\n", subArrayIH->readLatency + subArrayHO->readLatency);
+		//printf("\tWrite latency=%.4e s\n", subArrayIH->writeLatency + subArrayHO->writeLatency);
+		//printf("\tRead energy=%.4e J\n", arrayIH->readEnergy + subArrayIH->readDynamicEnergy + arrayHO->readEnergy + subArrayHO->readDynamicEnergy);
+		//printf("\tWrite energy=%.4e J\n", arrayIH->writeEnergy + subArrayIH->writeDynamicEnergy + arrayHO->writeEnergy + subArrayHO->writeDynamicEnergy);
 	}
 	printf("\n");
 	return 0;

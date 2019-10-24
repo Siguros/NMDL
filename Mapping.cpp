@@ -47,9 +47,11 @@ extern Param *param;
 
 extern std::vector< std::vector<double> > weight1;
 extern std::vector< std::vector<double> > weight2;
+extern std::vector< std::vector<double> > weight3;
 
 extern Array *arrayIH;
 extern Array *arrayHO;
+extern Array* arrayHH;
 
 /* Weights initialization */
 void WeightInitialize() {
@@ -61,11 +63,16 @@ void WeightInitialize() {
         }
     }
     /* Initialize weights for the hidden layer */
-    for (int i = 0; i < param->nOutput; i++) {
+    for (int i = 0; i < param->nHide2; i++) {
         for (int j = 0; j < param->nHide; j++) {
             weight2[i][j] = (double)(rand() % 4) / 3;   // random number: 0, 0.33, 0.66 or 1
         }
     }
+	for (int i = 0; i < param->nOutput; i++) {
+		for (int j = 0; j < param->nHide2; j++) {
+			weight3[i][j] = (double)(rand() % 4) / 3;   // random number: 0, 0.33, 0.66 or 1
+		}
+	}
 }
 
 /* Conductance initialization (map weight to RRAM conductance or SRAM data) */
@@ -76,9 +83,15 @@ void WeightToConductance() {
             arrayIH->WriteCell(col, row, -(param->maxWeight-param->minWeight) /* delta_W=-(param->maxWeight-param->minWeight) will completely erase */, param->maxWeight, param->minWeight, false);
         }
     }
+	/* Erase the weight of arrayHH */
+	for (int col = 0; col < param->nHide2; col++) {
+		for (int row = 0; row < param->nHide; row++) {
+			arrayHH->WriteCell(col, row, -(param->maxWeight - param->minWeight) /* delta_W=-(param->maxWeight-param->minWeight) will completely erase */, param->maxWeight, param->minWeight, false);
+		}
+	}
     /* Erase the weight of arrayHO */
     for (int col=0; col<param->nOutput; col++) {
-        for (int row=0; row<param->nHide; row++) {
+        for (int row=0; row<param->nHide2; row++) {
             arrayHO->WriteCell(col, row, -(param->maxWeight-param->minWeight) /* delta_W=-(param->maxWeight-param->minWeight) will completely erase */, param->maxWeight, param->minWeight, false);
         }
     }
@@ -88,10 +101,16 @@ void WeightToConductance() {
             arrayIH->WriteCell(col, row, weight1[col][row], param->maxWeight, param->minWeight, false);
         }
     }
+	/* Write weight to arrayIH */
+	for (int col = 0; col < param->nHide2; col++) {
+		for (int row = 0; row < param->nHide; row++) {
+			arrayHH->WriteCell(col, row, weight2[col][row], param->maxWeight, param->minWeight, false);
+		}
+	}
     /* Write weight to arrayHO */
     for (int col=0; col<param->nOutput; col++) {
-        for (int row=0; row<param->nHide; row++) {
-            arrayHO->WriteCell(col, row, weight2[col][row], param->maxWeight, param->minWeight, false);
+        for (int row=0; row<param->nHide2; row++) {
+            arrayHO->WriteCell(col, row, weight3[col][row], param->maxWeight, param->minWeight, false);
         }
     }
 }

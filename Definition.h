@@ -51,16 +51,22 @@ Output(param->numMnistTrainImages, std::vector<double>(param->nOutput));
 /* Weights from input to hidden layer */
 std::vector< std::vector<double> >
 weight1(param->nHide, std::vector<double>(param->nInput));
+/* Weights from hidden to hidden2 layer */
+std::vector< std::vector<double> >
+weight2(param->nHide2, std::vector<double>(param->nHide));
 /* Weights from hidden layer to output layer */
 std::vector< std::vector<double> >
-weight2(param->nOutput, std::vector<double>(param->nHide));
+weight3(param->nOutput, std::vector<double>(param->nHide2));
 
 /* Weight change of weight1 */
 std::vector< std::vector<double> >
 deltaWeight1(param->nHide, std::vector<double>(param->nInput));
 /* Weight change of weight2 */
 std::vector< std::vector<double> >
-deltaWeight2(param->nOutput, std::vector<double>(param->nHide));
+deltaWeight2(param->nHide2, std::vector<double>(param->nHide));
+/* Weight change of weight3 */
+std::vector< std::vector<double> >
+deltaWeight3(param->nOutput, std::vector<double>(param->nHide2));
 
 /* Inputs of testing set */
 std::vector< std::vector<double> >
@@ -82,18 +88,24 @@ int correct = 0;
 /* Synaptic array between input and hidden layer */
 Array *arrayIH = new Array(param->nHide, param->nInput, param->arrayWireWidth);
 /* Synaptic array between hidden and output layer */
-Array *arrayHO = new Array(param->nOutput, param->nHide, param->arrayWireWidth);
-
+Array *arrayHH = new Array(param->nHide2, param->nHide, param->arrayWireWidth);
+/* Synaptic array between hidden and output layer */
+Array *arrayHO = new Array(param->nOutput, param->nHide2, param->arrayWireWidth);
 /* Random number generator engine */
 std::mt19937 gen;
 
 /* NeuroSim */
 SubArray *subArrayIH;   // NeuroSim synaptic core for arrayIH
+SubArray *subArrayHH;   // NeuroSim synaptic core for arrayIH
 SubArray *subArrayHO;   // NeuroSim synaptic core for arrayHO
 /* Global properties of subArrayIH */
 InputParameter inputParameterIH;
 Technology techIH;
 MemCell cellIH;
+/* Global properties of subArrayHH */
+InputParameter inputParameterHH;
+Technology techHH;
+MemCell cellHH;
 /* Global properties of subArrayHO */
 InputParameter inputParameterHO;
 Technology techHO;
@@ -103,6 +115,11 @@ Adder adderIH(inputParameterIH, techIH, cellIH);
 Mux muxIH(inputParameterIH, techIH, cellIH);
 RowDecoder muxDecoderIH(inputParameterIH, techIH, cellIH);
 DFF dffIH(inputParameterIH, techIH, cellIH);
+/* Neuron peripheries below subArrayHH */
+Adder adderHH(inputParameterHH, techHH, cellHH);
+Mux muxHH(inputParameterHH, techHH, cellHH);
+RowDecoder muxDecoderHH(inputParameterHH, techHH, cellHH);
+DFF dffHH(inputParameterHH, techHH, cellHH);
 /* Neuron peripheries below subArrayHO */
 Adder adderHO(inputParameterHO, techHO, cellHO);
 Mux muxHO(inputParameterHO, techHO, cellHO);
